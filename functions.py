@@ -43,10 +43,14 @@ def parse_text(text: str) -> list:
 
 def pending_tasks():
     # GET SUBJECTS URLs
-    WebDriverWait(browser, 10).until(ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox")))
-    semestres_box = browser.find_elements(By.CSS_SELECTOR, ".box.py-3.generalbox")
-    ul_semestre_atual = semestres_box[0].find_element(By.CSS_SELECTOR, 'ul')  # get latest semester
-    disciplinas_semestre_atual = ul_semestre_atual.find_elements(By.CSS_SELECTOR, 'li')
+    try:
+        WebDriverWait(browser, 15).until(ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox")))
+        semestres_box = browser.find_elements(By.CSS_SELECTOR, ".box.py-3.generalbox")
+        ul_semestre_atual = semestres_box[0].find_element(By.CSS_SELECTOR, 'ul')  # get latest semester
+        disciplinas_semestre_atual = ul_semestre_atual.find_elements(By.CSS_SELECTOR, 'li')
+    except Exception as exc:
+        print(f'-> Exceção de rota: {exc}')
+        return None
 
     for subject in disciplinas_semestre_atual:
         link_elem = subject.find_element(By.TAG_NAME, 'a')
@@ -61,7 +65,7 @@ def pending_tasks():
         atividades = browser.find_elements(By.CLASS_NAME, "activity-item")  # get all activities DIVs
         for atividade in atividades:
             try:
-                # getting the title (usando o atributo data-activityname)
+                # getting the title (atributo data-activityname)
                 activity_name = atividade.get_attribute("data-activityname")
                 # print("Nome da Atividade:", activity_name)
 
@@ -72,13 +76,35 @@ def pending_tasks():
                 # print("Descrição da Atividade:", descricao_texto)
 
                 if activity_name and descricao_texto:
-                    if 'Vencimento:' in descricao_texto:
+                    if 'Vencimento:' in descricao_texto: #tem data de vencimento
                         date_formatted = parse_text(descricao_texto)
                         if date_formatted > datetime.now():
+
+                            try: #now it tries access the activity page
+                                url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
+                                activity_url = url_element.get_attribute('href')
+                                browser.get(activity_url)
+                                WebDriverWait(browser, 10).until(
+                                    ExpC.element_to_be_clickable((By.CSS_SELECTOR, 'div.submissionstatustable')))
+                                try: #now try to get the status table
+                                    #inside the div.submissionstatustable
+                                    table = browser.find_element(By.CSS_SELECTOR, 'div.submissionstatustable table')
+                                    # get the first table row
+                                    first_tr = table.find_element(By.CSS_SELECTOR, 'tbody > tr:first-child')
+                                    #get the td inside the row containing the status value
+                                    first_td = first_tr.find_element(By.TAG_NAME, 'td')
+                                    print(f"Status: {first_td.text}")
+                                except Exception as e:
+                                    print(f"Erro ao acessar o status de envio:\n{e}")
+
+                            except Exception as Exc:
+                                print(f'ERRO AO CAPTURAR URL DA ATIVIDADE:\n{Exc}')
+
                             task = {
                                 'Disciplina': d[0],  # name,
                                 'Tarefa': activity_name,
-                                'Prazo': date_formatted.strftime("%d/%m/%Y")
+                                'Prazo': date_formatted.strftime("%d/%m/%Y"),
+                                'Status': first_td.text,
                             }
                             tarefas_pendentes.append(task)
                             # print(f"Nome da Atividade: {activity_name}\n Vencimento da Atividade: {date_formatted}")

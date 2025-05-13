@@ -1,7 +1,9 @@
-import tkinter as tk
-from tkinter import messagebox
 import threading
 import functions #crawler functions
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+
 
 class App(tk.Tk):
     def __init__(self):
@@ -46,8 +48,13 @@ class App(tk.Tk):
     def run_login(self, user, password):
         try:
             self.after(0, self.show_logged_screen)  # altera layout principal
-            df = functions.login_moodle(user, password)  # recebe o dataframe
-            self.after(0, lambda: self.show_results_screen(df))  # exibe na interface
+            try:
+                df = functions.login_moodle(user, password)  # recebe o dataframe
+                self.after(0, lambda: self.show_results_screen(df))  # exibe na interface
+            except Exception as exc:
+                self.after(0, lambda: messagebox.showerror("Erro", f"Falha no crawler:\n{exc}"))
+                self.after(0, self.create_login_ui)
+
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Erro", f"Falha no login:\n{e}"))
             self.after(0, self.create_login_ui)
@@ -57,7 +64,7 @@ class App(tk.Tk):
         for widget in self.winfo_children():
             widget.destroy()
 
-        self.title("Conectado")
+        self.title("Conectado ao Moodle")
 
         tk.Label(self, text="Login realizado com sucesso!", font=("Arial", 14)).pack(pady=20)
 
@@ -75,31 +82,53 @@ class App(tk.Tk):
 
         self.title("Tarefas Pendentes")
 
-        #dataframe to a string
-        df_str = df.to_string(index=False)
-        linhas = df_str.split('\n')
-        num_linhas = len(linhas)
-        largura_max = max(len(linha) for linha in linhas)
-
-        #proporcional size
-        largura_px = min(1000, max(300, largura_max * 8))
-        altura_px = min(700, max(200, num_linhas * 20))
+        altura_px = min(700, max(300, len(df) * 25))
+        largura_px = 1000
         self.geometry(f"{largura_px}x{altura_px}")
 
         frame = tk.Frame(self)
         frame.pack(fill='both', expand=True, padx=10, pady=10)
+        #orientation
+        vsb = tk.Scrollbar(frame, orient="vertical")
+        hsb = tk.Scrollbar(frame, orient="horizontal")
 
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.pack(side='right', fill='y')
-
-        text_widget = tk.Text(
-            frame, wrap='none', yscrollcommand=scrollbar.set, font=("Courier", 9,'bold')
+        tree = ttk.Treeview(
+            frame,
+            columns=list(df.columns), #headers are the columns of the df
+            show='headings',
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set
         )
-        text_widget.pack(fill='both', expand=True)
-        scrollbar.config(command=text_widget.yview)
 
-        text_widget.insert(tk.END, df_str)
-        text_widget.config(state='disabled')
+        vsb.config(command=tree.yview)
+        vsb.pack(side='right', fill='y')
+        hsb.config(command=tree.xview)
+        hsb.pack(side='bottom', fill='x')
+        tree.pack(fill='both', expand=True)
+
+        #headers size
+        for col in df.columns:
+            tree.heading(col, text=col)
+            max_width = max(df[col].astype(str).apply(len).max(), len(col)) * 7
+            tree.column(col, width=min(max_width, 400), anchor='w')
+
+        #styling tags to the table lines
+        tree.tag_configure('atrasado', background='#f8d7da')  #red
+        tree.tag_configure('pendente', background='#fff3cd')  #yellow
+        tree.tag_configure('enviado', background='#d4edda')  #green
+
+        #insert lines
+        for _, row in df.iterrows():
+            status = str(row['Status']).lower()
+
+            if 'nenhum envio' in status or 'não enviado' in status:
+                tag = 'pendente'
+            elif 'enviado' in status:
+                tag = 'enviado'
+            else: #if It would get before activities (all time published ones)
+                tag = 'atrasado'
+
+            tree.insert('', 'end', values=list(row), tags=(tag,))
 
 if __name__ == '__main__':
     app = App()
