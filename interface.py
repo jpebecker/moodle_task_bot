@@ -46,18 +46,13 @@ class App(tk.Tk):
         threading.Thread(target=self.run_login, args=(user, password), daemon=True).start()
 
     def run_login(self, user, password):
-        try:
-            self.after(0, self.show_logged_screen)  # altera layout principal
-            try:
-                df = functions.login_moodle(user, password)  # recebe o dataframe
-                self.after(0, lambda: self.show_results_screen(df))  # exibe na interface
-            except Exception as exc:
-                self.after(0, lambda: messagebox.showerror("Erro", f"Falha no crawler:\n{exc}"))
-                self.after(0, self.create_login_ui)
-
-        except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Erro", f"Falha no login:\n{e}"))
-            self.after(0, self.create_login_ui)
+        self.after(0, self.show_logged_screen)  # altera layout principal
+        df = functions.login_moodle(user, password)  # tenta pegar o dataframe
+        if df is not None:
+            self.after(0, lambda: self.show_results_screen(df))  # exibe na interface
+        elif df is None:
+            self.after(0, lambda: messagebox.showerror("Erro", f"Falha nas credenciais:\n"))
+            self.after(0, self.create_login_ui) #reinicia interface
 
     def show_logged_screen(self):
         #Limpa

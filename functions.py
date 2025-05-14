@@ -3,13 +3,13 @@ import pandas as pd
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ExpC
 
 #browser options
 options = Options()
-options.add_argument("--headless")
+#options.add_argument("--headless")
 options.add_argument("--disable-gpu")
 options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-dev-shm-usage")
@@ -123,11 +123,19 @@ def pending_tasks():
     print(df)
     return df
 
-def login_moodle(user:str,password:str):
-    #LOGIN INTO MOODLE
+
+def login_moodle(user: str, password: str):
+    # LOGIN INTO MOODLE
     browser.get("https://presencial.moodle.ufsc.br/login")
     WebDriverWait(browser, 10).until(ExpC.element_to_be_clickable((By.ID, 'username')))
     browser.find_element(By.ID, "username").send_keys(user)
     browser.find_element(By.ID, "password").send_keys(password)
     browser.find_element(By.NAME, "submit").click()
-    return pending_tasks()
+    WebDriverWait(browser,5)
+
+    if "my" in browser.current_url:
+        print('Login bem-sucedido.')
+        return pending_tasks()
+    else:
+        print('Login falhou ou credenciais inválidas')
+        return None
