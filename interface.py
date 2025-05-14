@@ -1,24 +1,45 @@
-import threading
-import functions #crawler functions
+import functions  # crawler functions
+import threading,os
 import tkinter as tk
 from tkinter import ttk
+from pathlib import Path
 from tkinter import messagebox
+from cryptography.fernet import Fernet
 
+########################################################Credentials Section
+#credentials path
+CREDENTIALS_DIR = Path.home() / "Documents" / "Moodle_Credentials"
+CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials.txt"
+KEY_FILE = CREDENTIALS_DIR / "key.key"
 
+#check if directory path exist
+CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+
+#read or write credential
+if KEY_FILE.exists():
+    with open(KEY_FILE, 'rb') as f:
+        key = f.read()
+else:
+    key = Fernet.generate_key()
+    with open(KEY_FILE, 'wb') as f:
+        f.write(key)
+
+fernet = Fernet(key)
+
+########################################################App interface Class
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Moodle Bot")
         self.geometry("300x200")
         self.resizable(False, False)
+        self.clear_btn = None  #botao de limpar credenciais (se for usado)
         self.create_login_ui()
 
     def create_login_ui(self):
-        # Limpa qualquer layout anterior
         for widget in self.winfo_children():
             widget.destroy()
 
-        # Campos de login
         tk.Label(self, text="Usuário:", anchor="e", width=12).grid(row=0, column=0, padx=10, pady=10)
         self.user_entry = tk.Entry(self, width=25)
         self.user_entry.grid(row=0, column=1, padx=10, pady=10)
@@ -27,8 +48,15 @@ class App(tk.Tk):
         self.pass_entry = tk.Entry(self, width=25, show="*")
         self.pass_entry.grid(row=1, column=1, padx=10, pady=10)
 
+        self.save_credentials_var = tk.BooleanVar()
+        save_checkbox = tk.Checkbutton(self, text="Salvar credenciais", variable=self.save_credentials_var)
+        save_checkbox.grid(row=2, column=0, columnspan=2)
+
         login_btn = tk.Button(self, text="Login", width=20, command=self.handle_login)
-        login_btn.grid(row=2, column=0, columnspan=2, pady=15)
+        login_btn.grid(row=3, column=0, columnspan=2, pady=10)
+
+        self.clear_btn = None  # Inicializa sem o botão
+        self.load_credentials()
 
     def handle_login(self):
         user = self.user_entry.get().strip()
@@ -38,37 +66,82 @@ class App(tk.Tk):
             messagebox.showwarning("Aviso", "Por favor, preencha usuário e senha.")
             return
 
-        # Desabilita campos durante a autenticação
         self.user_entry.config(state='disabled')
         self.pass_entry.config(state='disabled')
 
-        # Inicia login em thread separada
+        #se for para salvar credenciais de acesso
+        if self.save_credentials_var.get():
+            try:
+                encrypted_password = fernet.encrypt(password.encode())
+                with open(CREDENTIALS_FILE, 'w') as f:
+                    f.write(user + '\n')
+                    f.write(encrypted_password.decode())
+                messagebox.showinfo("Credenciais salvas", f"Credenciais salvas com sucesso em:\n{CREDENTIALS_FILE}")
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar credenciais: {e}")
+
         threading.Thread(target=self.run_login, args=(user, password), daemon=True).start()
 
     def run_login(self, user, password):
-        self.after(0, self.show_logged_screen)  # altera layout principal
-        df = functions.login_moodle(user, password)  # tenta pegar o dataframe
+        self.after(0, self.show_logged_screen)
+        df = functions.login_moodle(user, password)
         if df is not None:
-            self.after(0, lambda: self.show_results_screen(df))  # exibe na interface
-        elif df is None:
-            self.after(0, lambda: messagebox.showerror("Erro", f"Falha nas credenciais:\n"))
-            self.after(0, self.create_login_ui) #reinicia interface
+            self.after(0, lambda: self.show_results_screen(df))
+        else:
+            self.after(0, lambda: messagebox.showerror("Erro", f"Falha nas credenciais\n"))
+            self.after(0, self.create_login_ui)
+
+    def load_credentials(self):
+        try:
+            if CREDENTIALS_FILE.exists():
+                with open(CREDENTIALS_FILE, 'r') as f:
+                    user = f.readline().strip()
+                    encrypted_password = f.readline().strip().encode()
+                    password = fernet.decrypt(encrypted_password).decode()
+
+                    self.user_entry.insert(0, user)
+                    self.pass_entry.insert(0, password)
+                    self.save_credentials_var.set(True)
+
+                #botao de limpar credenciais
+                self.clear_btn = tk.Button(self, text="Limpar credenciais salvas", command=self.clear_credentials)
+                self.clear_btn.grid(row=4, column=0, columnspan=2)
+        except Exception as exc:
+            messagebox.showwarning("Erro", f"Erro ao carregar credenciais salvas: {exc}")
+
+    def clear_credentials(self):
+        try:
+            if CREDENTIALS_FILE.exists():
+                CREDENTIALS_FILE.unlink()
+            if KEY_FILE.exists():
+                KEY_FILE.unlink()
+            messagebox.showinfo(
+                "Credenciais removidas",
+                f"Credenciais apagadas com sucesso de:\n{CREDENTIALS_FILE}"
+            )
+            self.user_entry.delete(0, tk.END)
+            self.pass_entry.delete(0, tk.END)
+            self.save_credentials_var.set(False)
+
+            if self.clear_btn:
+                self.clear_btn.destroy()
+                self.clear_btn = None
+        except Exception as e:
+            messagebox.showerror("Erro", f"Não foi possível apagar as credenciais: {e}")
 
     def show_logged_screen(self):
-        #Limpa
         for widget in self.winfo_children():
             widget.destroy()
 
         self.title("Conectado ao Moodle")
 
         tk.Label(self, text="Login realizado com sucesso!", font=("Arial", 14)).pack(pady=20)
-
         tk.Label(
             self,
             text="Aguarde o fim da varredura para que esta página atualize automaticamente",
             font=("Arial", 10),
-            wraplength=250,  # quebra de linha automática
-            justify="center"  # centraliza o texto
+            wraplength=250,
+            justify="center"
         ).pack(pady=20)
 
     def show_results_screen(self, df):
@@ -83,13 +156,13 @@ class App(tk.Tk):
 
         frame = tk.Frame(self)
         frame.pack(fill='both', expand=True, padx=10, pady=10)
-        #orientation
+
         vsb = tk.Scrollbar(frame, orient="vertical")
         hsb = tk.Scrollbar(frame, orient="horizontal")
 
         tree = ttk.Treeview(
             frame,
-            columns=list(df.columns), #headers are the columns of the df
+            columns=list(df.columns),
             show='headings',
             yscrollcommand=vsb.set,
             xscrollcommand=hsb.set
@@ -101,29 +174,26 @@ class App(tk.Tk):
         hsb.pack(side='bottom', fill='x')
         tree.pack(fill='both', expand=True)
 
-        #headers size
         for col in df.columns:
             tree.heading(col, text=col)
             max_width = max(df[col].astype(str).apply(len).max(), len(col)) * 7
             tree.column(col, width=min(max_width, 400), anchor='w')
 
-        #styling tags to the table lines
-        tree.tag_configure('atrasado', background='#f8d7da')  #red
-        tree.tag_configure('pendente', background='#fff3cd')  #yellow
-        tree.tag_configure('enviado', background='#d4edda')  #green
+        tree.tag_configure('atrasado', background='#f8d7da')
+        tree.tag_configure('pendente', background='#fff3cd')
+        tree.tag_configure('enviado', background='#d4edda')
 
-        #insert lines
         for _, row in df.iterrows():
             status = str(row['Status']).lower()
-
             if 'nenhum envio' in status or 'não enviado' in status:
                 tag = 'pendente'
             elif 'enviado' in status:
                 tag = 'enviado'
-            else: #if It would get before activities (all time published ones)
+            else:
                 tag = 'atrasado'
 
             tree.insert('', 'end', values=list(row), tags=(tag,))
+
 
 if __name__ == '__main__':
     app = App()
