@@ -1,5 +1,5 @@
 import functions  # crawler functions
-import threading,os
+import threading
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
@@ -74,14 +74,17 @@ class App(tk.Tk):
         self.user_entry.config(state='disabled')
         self.pass_entry.config(state='disabled')
 
-        #se for para salvar credenciais de acesso
         if self.save_credentials_var.get():
             try:
                 encrypted_password = fernet.encrypt(password.encode())
+                cred_was_saved = not CREDENTIALS_FILE.exists()  # Verifica se o arquivo já existia
+
                 with open(CREDENTIALS_FILE, 'w') as f:
                     f.write(user + '\n')
                     f.write(encrypted_password.decode())
-                messagebox.showinfo("Credenciais salvas", f"Credenciais salvas com sucesso em:\n{CREDENTIALS_FILE}")
+
+                if cred_was_saved:
+                    messagebox.showinfo("Credenciais salvas", f"Credenciais salvas com sucesso em:\n{CREDENTIALS_FILE}")
             except Exception as e:
                 messagebox.showerror("Erro", f"Erro ao salvar credenciais: {e}")
 
