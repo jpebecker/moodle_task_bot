@@ -3,6 +3,7 @@ import threading,os
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
+from datetime import datetime
 from tkinter import messagebox
 from cryptography.fernet import Fernet
 
@@ -31,7 +32,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Moodle Bot")
-        self.geometry("300x200")
+        self.geometry("300x250")
         self.resizable(False, False)
         self.clear_btn = None  #botao de limpar credenciais (se for usado)
         self.create_login_ui()
@@ -52,8 +53,12 @@ class App(tk.Tk):
         save_checkbox = tk.Checkbutton(self, text="Salvar credenciais", variable=self.save_credentials_var)
         save_checkbox.grid(row=2, column=0, columnspan=2)
 
+        self.all_time_var = tk.BooleanVar()
+        all_time_checkbox = tk.Checkbutton(self, text="All Published", variable=self.all_time_var)
+        all_time_checkbox.grid(row=3, column=0, columnspan=2)
+
         login_btn = tk.Button(self, text="Login", width=20, command=self.handle_login)
-        login_btn.grid(row=3, column=0, columnspan=2, pady=10)
+        login_btn.grid(row=4, column=0, columnspan=2, pady=10)
 
         self.clear_btn = None  # Inicializa sem o botão
         self.load_credentials()
@@ -80,11 +85,11 @@ class App(tk.Tk):
             except Exception as e:
                 messagebox.showerror("Erro", f"Erro ao salvar credenciais: {e}")
 
-        threading.Thread(target=self.run_login, args=(user, password), daemon=True).start()
+        threading.Thread(target=self.run_login, args=(user, password, self.all_time_var.get()), daemon=True).start()
 
-    def run_login(self, user, password):
+    def run_login(self, user, password, all_time):
         self.after(0, self.show_logged_screen)
-        df = functions.login_moodle(user, password)
+        df = functions.login_moodle(user, password, all_time=all_time)
         if df is not None:
             self.after(0, lambda: self.show_results_screen(df))
         else:
@@ -105,7 +110,7 @@ class App(tk.Tk):
 
                 #botao de limpar credenciais
                 self.clear_btn = tk.Button(self, text="Limpar credenciais salvas", command=self.clear_credentials)
-                self.clear_btn.grid(row=4, column=0, columnspan=2)
+                self.clear_btn.grid(row=5, column=0, columnspan=2)
         except Exception as exc:
             messagebox.showwarning("Erro", f"Erro ao carregar credenciais salvas: {exc}")
 
@@ -185,8 +190,17 @@ class App(tk.Tk):
 
         for _, row in df.iterrows():
             status = str(row['Status']).lower()
+            prazo = datetime.strptime(row['Prazo'], "%d/%m/%Y").date()
+
             if 'nenhum envio' in status or 'não enviado' in status:
-                tag = 'pendente'
+                if prazo < datetime.today().date():
+                    tag = 'atrasado'
+                else:
+                    tag = 'pendente'
+               
+            elif 'enviado com atraso' in status:
+                tag = 'atrasado'
+
             elif 'enviado' in status:
                 tag = 'enviado'
             else:

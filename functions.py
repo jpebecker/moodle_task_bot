@@ -9,7 +9,7 @@ from selenium.webdriver.support import expected_conditions as ExpC
 
 #browser options
 options = Options()
-#options.add_argument("--headless")
+options.add_argument("--headless")
 options.add_argument("--disable-gpu")
 options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-dev-shm-usage")
@@ -41,90 +41,92 @@ def parse_text(text: str) -> list:
 
     return data_obj
 
-def pending_tasks():
-    # GET SUBJECTS URLs
+def pending_tasks(all_time=False):
+    tarefas_pendentes.clear()
+    disciplinas.clear()
+
     try:
         WebDriverWait(browser, 15).until(ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox")))
         semestres_box = browser.find_elements(By.CSS_SELECTOR, ".box.py-3.generalbox")
-        ul_semestre_atual = semestres_box[0].find_element(By.CSS_SELECTOR, 'ul')  # get latest semester
+        ul_semestre_atual = semestres_box[0].find_element(By.CSS_SELECTOR, 'ul')
         disciplinas_semestre_atual = ul_semestre_atual.find_elements(By.CSS_SELECTOR, 'li')
     except Exception as exc:
-        print(f'-> Exceção de rota: {exc}')
+        print(f'-> Erro ao carregar disciplinas: {exc}')
         return None
 
     for subject in disciplinas_semestre_atual:
-        link_elem = subject.find_element(By.TAG_NAME, 'a')
-        nome = link_elem.text
-        url = link_elem.get_attribute('href')
-        # print(nome, url)
-        disciplinas.append((nome, url))
+        try:
+            link_elem = subject.find_element(By.TAG_NAME, 'a')
+            nome = link_elem.text
+            url = link_elem.get_attribute('href')
+            disciplinas.append((nome, url))
+        except Exception:
+            continue
 
-    for d in disciplinas:
-        browser.get(d[1])  # get into the subject page
-        WebDriverWait(browser, 10).until(ExpC.presence_of_all_elements_located((By.CLASS_NAME, "activity-item")))
-        atividades = browser.find_elements(By.CLASS_NAME, "activity-item")  # get all activities DIVs
+    for nome_disciplina, url_disciplina in disciplinas:
+        try:
+            browser.get(url_disciplina)
+            WebDriverWait(browser, 10).until(ExpC.presence_of_all_elements_located((By.CLASS_NAME, "activity-item")))
+            atividades = browser.find_elements(By.CLASS_NAME, "activity-item")
+        except Exception as e:
+            print(f"Erro ao carregar atividades de {nome_disciplina}: {e}")
+            continue
+
         for atividade in atividades:
             try:
-                # getting the title (atributo data-activityname)
                 activity_name = atividade.get_attribute("data-activityname")
-                # print("Nome da Atividade:", activity_name)
-
-                # searching description
                 descricao_div = atividade.find_element(By.CLASS_NAME, "description")
-                descricao_interna = descricao_div.find_element(By.CLASS_NAME, "description-inner")
-                descricao_texto = descricao_interna.text
-                # print("Descrição da Atividade:", descricao_texto)
+                descricao_texto = descricao_div.find_element(By.CLASS_NAME, "description-inner").text
 
-                if activity_name and descricao_texto:
-                    if 'Vencimento:' in descricao_texto: #tem data de vencimento
-                        date_formatted = parse_text(descricao_texto)
-                        if date_formatted > datetime.now():
+                if activity_name and 'Vencimento:' in descricao_texto:
+                    data_vencimento = parse_text(descricao_texto)
 
-                            try: #now it tries access the activity page
-                                url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
-                                activity_url = url_element.get_attribute('href')
-                                browser.get(activity_url)
-                                WebDriverWait(browser, 10).until(
-                                    ExpC.element_to_be_clickable((By.CSS_SELECTOR, 'div.submissionstatustable')))
-                                try: #now try to get the status table
-                                    #inside the div.submissionstatustable
-                                    table = browser.find_element(By.CSS_SELECTOR, 'div.submissionstatustable table')
-                                    # get the first table row
-                                    first_tr = table.find_element(By.CSS_SELECTOR, 'tbody > tr:first-child')
-                                    #get the td inside the row containing the status value
-                                    first_td = first_tr.find_element(By.TAG_NAME, 'td')
-                                    print(f"Status: {first_td.text}")
-                                except Exception as e:
-                                    print(f"Erro ao acessar o status de envio:\n{e}")
+                    if all_time or data_vencimento > datetime.now():
+                        #activity link
+                        url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
+                        activity_url = url_element.get_attribute('href')
 
-                            except Exception as Exc:
-                                print(f'ERRO AO CAPTURAR URL DA ATIVIDADE:\n{Exc}')
+                        #get into activity page
+                        try:
+                            browser.execute_script("window.open(arguments[0]);", activity_url)
+                            browser.switch_to.window(browser.window_handles[-1])
 
-                            task = {
-                                'Disciplina': d[0],  # name,
-                                'Tarefa': activity_name,
-                                'Prazo': date_formatted.strftime("%d/%m/%Y"),
-                                'Status': first_td.text,
-                            }
-                            tarefas_pendentes.append(task)
-                            # print(f"Nome da Atividade: {activity_name}\n Vencimento da Atividade: {date_formatted}")
-            except Exception as Exc:
-                pass  # ignored values
+                            WebDriverWait(browser, 10).until(
+                                ExpC.presence_of_element_located((By.CSS_SELECTOR, 'div.submissionstatustable'))
+                            )
+                            table = browser.find_element(By.CSS_SELECTOR, 'div.submissionstatustable table')
+                            first_td = table.find_element(By.CSS_SELECTOR, 'tbody > tr:first-child td')
+                            status = first_td.text.strip()
+                        except Exception as e:
+                            status = "Erro ao obter status"
+                            print(f"Erro ao obter status: {e}")
+                        finally:
+                            browser.close()
+                            browser.switch_to.window(browser.window_handles[0])
 
-        browser.back()  # go back to main page of subjects
+                        task = {
+                            'Disciplina': nome_disciplina,
+                            'Tarefa': activity_name,
+                            'Prazo': data_vencimento.strftime("%d/%m/%Y"),
+                            'Status': status,
+                        }
+                        tarefas_pendentes.append(task)
 
-    tarefas_ordenadas = sorted(tarefas_pendentes,
-                               key=lambda tarefa: datetime.strptime(tarefa["Prazo"], "%d/%m/%Y"))
+            except Exception as exc:
+                #print(exc)
+                continue
+
+    tarefas_ordenadas = sorted(tarefas_pendentes, key=lambda t: datetime.strptime(t["Prazo"], "%d/%m/%Y"))
 
     df = pd.DataFrame(tarefas_ordenadas)
-    pd.set_option('display.max_columns', None)  # all columns showed guaranteeed
-    pd.set_option('display.width', 0)  # limited width
-    pd.set_option('display.max_colwidth', None)  # all contents are showed
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 0)
+    pd.set_option('display.max_colwidth', None)
     print(df)
     return df
 
 
-def login_moodle(user: str, password: str):
+def login_moodle(user: str, password: str, all_time: bool = False):
     # LOGIN INTO MOODLE
     browser.get("https://presencial.moodle.ufsc.br/login")
     WebDriverWait(browser, 10).until(ExpC.element_to_be_clickable((By.ID, 'username')))
@@ -135,7 +137,7 @@ def login_moodle(user: str, password: str):
 
     if "my" in browser.current_url:
         print('Login bem-sucedido.')
-        return pending_tasks()
+        return pending_tasks(all_time)
     else:
         print('Login falhou ou credenciais inválidas')
         return None
