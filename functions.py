@@ -9,7 +9,7 @@ from selenium.webdriver.support import expected_conditions as ExpC
 
 #browser options
 options = Options()
-options.add_argument("--headless")
+#options.add_argument("--headless")
 options.add_argument("--disable-gpu")
 options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-dev-shm-usage")
@@ -42,6 +42,11 @@ def parse_text(text: str) -> list:
     return data_obj
 
 def pending_tasks(all_time=False):
+    """
+    It collects all subjects in the latest semester and then loop through their pages in UniThreading mode(in this version)
+    Then, in the subjects page it loop through all activities getting their due dates and then enter their pages too to
+    verify ifs its delivered or not
+    """
     tarefas_pendentes.clear()
     disciplinas.clear()
 
@@ -125,19 +130,54 @@ def pending_tasks(all_time=False):
     print(df)
     return df
 
-
 def login_moodle(user: str, password: str, all_time: bool = False):
-    # LOGIN INTO MOODLE
+    """
+    This function occurs after the user click in Login at the interface and have exception routes for error in credentials
+    and if the user have multiple curriculum numbers
+    """
     browser.get("https://presencial.moodle.ufsc.br/login")
     WebDriverWait(browser, 10).until(ExpC.element_to_be_clickable((By.ID, 'username')))
     browser.find_element(By.ID, "username").send_keys(user)
     browser.find_element(By.ID, "password").send_keys(password)
     browser.find_element(By.NAME, "submit").click()
-    WebDriverWait(browser,5)
+    WebDriverWait(browser, 5).until(lambda b: True)
+    curriculum_numbers = []
 
     if "my" in browser.current_url:
         print('Login bem-sucedido.')
-        return pending_tasks(all_time)
-    else:
-        print('Login falhou ou credenciais inválidas')
-        return None
+        return {"status": "success", "data": pending_tasks(all_time)}
+    try:
+        table = browser.find_element(By.CSS_SELECTOR, "div.table-responsive table")
+        id_links = table.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
+        links = [link.get_attribute('href') for link in id_links]
+        user_ids = [link.text for link in id_links]
+        for i in range(len(user_ids)):
+            curriculum_numbers.append((user_ids[i],links[i]))
+        print("Múltiplos IDs de usuário:", user_ids)
+        return {"status": "multiple_ids", "data": curriculum_numbers}
+    except:
+        print('Login falhou ou estrutura da tabela não encontrada.')
+        return {"status": "error", "data": None}
+
+def select_identity(user_id_page):
+    """
+    In a multi-curriculum number case, this function selects the curriculum number that the user wants to access moodle.
+    OBS: this is the LAST step in the multi-curriculum number case
+    """
+    try:
+        WebDriverWait(browser, 10).until(
+            ExpC.presence_of_element_located((By.CSS_SELECTOR, "td.cell.c1 a")))
+
+        table_links = browser.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
+
+        #get corresponding url
+        for link in table_links:
+            if link.get_attribute('href') == user_id_page:
+                link.click()
+                WebDriverWait(browser, 10).until(lambda b: "my" in b.current_url)
+                return  #exit and continues the process
+
+        raise ValueError(f"Link com href '{user_id_page}' não encontrado.")
+
+    except Exception as e:
+        raise RuntimeError(f"Erro ao selecionar identidade: {e}")

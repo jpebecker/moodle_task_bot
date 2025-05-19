@@ -34,10 +34,17 @@ class App(tk.Tk):
         self.title("Moodle Bot")
         self.geometry("300x250")
         self.resizable(False, False)
+        self.user_entry = None
+        self.pass_entry = None
+        self.save_credentials_var = None
+        self.all_time_var = None
         self.clear_btn = None  #botao de limpar credenciais (se for usado)
         self.create_login_ui()
 
     def create_login_ui(self):
+        """
+        Show all the initial ui elements to the Login Process
+        """
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -64,6 +71,9 @@ class App(tk.Tk):
         self.load_credentials()
 
     def handle_login(self):
+        """
+        Get exceptions related to the login after the LOGIN btn is pressed
+        """
         user = self.user_entry.get().strip()
         password = self.pass_entry.get().strip()
 
@@ -77,7 +87,7 @@ class App(tk.Tk):
         if self.save_credentials_var.get():
             try:
                 encrypted_password = fernet.encrypt(password.encode())
-                cred_was_saved = not CREDENTIALS_FILE.exists()  # Verifica se o arquivo já existia
+                cred_was_saved = not CREDENTIALS_FILE.exists()  #se o arquivo já existia
 
                 with open(CREDENTIALS_FILE, 'w') as f:
                     f.write(user + '\n')
@@ -91,15 +101,35 @@ class App(tk.Tk):
         threading.Thread(target=self.run_login, args=(user, password, self.all_time_var.get()), daemon=True).start()
 
     def run_login(self, user, password, all_time):
+        """
+        Switch the UI and start the web scrapping Login Function and waits for the status result, if sucessful it will
+        get back the dataframe of results and call the show results function
+        """
         self.after(0, self.show_logged_screen)
-        df = functions.login_moodle(user, password, all_time=all_time)
-        if df is not None:
+
+        result = functions.login_moodle(user, password, all_time=all_time)
+
+        if result["status"] == "success":
+            df = result["data"]
             self.after(0, lambda: self.show_results_screen(df))
-        else:
+
+        elif result["status"] == "multiple_ids":
+            users_ids = []
+            links_ids = []
+            for user in result["data"]:
+                users_ids.append(user[0])
+                links_ids.append(user[1])
+
+            self.after(0, lambda: self.show_curriculum_opt(users_ids, links_ids))
+
+        else:  #if status == error
             self.after(0, lambda: messagebox.showerror("Erro", f"Falha nas credenciais\n"))
             self.after(0, self.create_login_ui)
 
     def load_credentials(self):
+        """
+        Insert saved credentials at their entries
+        """
         try:
             if CREDENTIALS_FILE.exists():
                 with open(CREDENTIALS_FILE, 'r') as f:
@@ -118,6 +148,9 @@ class App(tk.Tk):
             messagebox.showwarning("Erro", f"Erro ao carregar credenciais salvas: {exc}")
 
     def clear_credentials(self):
+        """
+        Erase the credential from the local repository and erase the inserted ones at their entries
+        """
         try:
             if CREDENTIALS_FILE.exists():
                 CREDENTIALS_FILE.unlink()
@@ -138,6 +171,9 @@ class App(tk.Tk):
             messagebox.showerror("Erro", f"Não foi possível apagar as credenciais: {e}")
 
     def show_logged_screen(self):
+        """
+        Change the screen of the app to a In Progress one
+        """
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -153,6 +189,9 @@ class App(tk.Tk):
         ).pack(pady=20)
 
     def show_results_screen(self, df):
+        """
+        The last step of gathering and showing results in a table format with the headers, columns and rows
+        """
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -211,7 +250,42 @@ class App(tk.Tk):
 
             tree.insert('', 'end', values=list(row), tags=(tag,))
 
+    def show_curriculum_opt(self, user_ids: list, links: list):
+        """
+        Show a new window if the different curriculum numbers showed as buttons and wait for the user click
+        """
+        window = tk.Toplevel(self)
+        window.title("Selecione a matrícula")
 
+        tk.Label(window, text="Escolha o número de matrícula para continuar:").pack(pady=10)
+
+        for uid, link in zip(user_ids, links):
+            tk.Button(
+                window,
+                text=uid,
+                command=lambda l=link: self.select_identity(l, window)
+            ).pack(pady=5)
+
+    def select_identity(self, user_link, window):
+        """
+        Delete the curriculum option window and calls another function to properly set the adress of the user selected
+        """
+        window.destroy()
+        threading.Thread(target=self._run_select_identity, args=(user_link,), daemon=True).start()
+
+    def _run_select_identity(self, user_page):
+        """
+        Send to the Function script the user_url and awaits for the result to be shown like the run_login method
+        """
+        try:
+            functions.select_identity(user_page)
+            df = functions.pending_tasks(self.all_time_var.get())
+            self.after(0, lambda: self.show_results_screen(df))
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Erro", f"Erro ao selecionar identidade: {e}"))
+            self.after(0, self.create_login_ui)
+
+##########################--------------------------------------Main loop
 if __name__ == '__main__':
     app = App()
     app.mainloop()
