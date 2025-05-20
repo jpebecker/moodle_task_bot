@@ -1,4 +1,5 @@
 import re
+import time
 import pandas as pd
 from datetime import datetime
 from selenium import webdriver
@@ -50,7 +51,7 @@ def pending_tasks(all_time=False):
     tarefas_pendentes.clear()
     disciplinas.clear()
 
-    try:
+    try: #get all subjects in the latest semester 'semestres_box[0]'
         WebDriverWait(browser, 15).until(ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox")))
         semestres_box = browser.find_elements(By.CSS_SELECTOR, ".box.py-3.generalbox")
         ul_semestre_atual = semestres_box[0].find_element(By.CSS_SELECTOR, 'ul')
@@ -59,18 +60,36 @@ def pending_tasks(all_time=False):
         print(f'-> Erro ao carregar disciplinas: {exc}')
         return None
 
-    for subject in disciplinas_semestre_atual:
+    for subject in disciplinas_semestre_atual: #get the url and and text from the subjects list of Li
         try:
             link_elem = subject.find_element(By.TAG_NAME, 'a')
             nome = link_elem.text
             url = link_elem.get_attribute('href')
             disciplinas.append((nome, url))
-        except Exception:
+        except Exception as exc:
+            #print(exc)
             continue
 
     for nome_disciplina, url_disciplina in disciplinas:
         try:
             browser.get(url_disciplina)
+            WebDriverWait(browser, 10).until(ExpC.element_to_be_clickable((By.ID, "collapsesections")))
+            #######################################GET ALL SECTIONS OF ACTIVITIES OPEN AT THE SUBJECT PAGE
+            botao = browser.find_element(By.ID, "collapsesections") #sections state btn
+            aria_expanded = botao.get_attribute("aria-expanded")
+
+            if aria_expanded == "true": #if the btn is in "Close All" state
+                botao.click()  #close all
+                time.sleep(0.4) #delay
+                botao = browser.find_element(By.ID, "collapsesections") #recapture the btn
+                botao.click()  #open all
+            else: #if the btn is on "Expand All' state
+                for _ in range(3): #to guarantee sucess it will loop through
+                    botao = browser.find_element(By.ID, "collapsesections")
+                    botao.click() #expand-close-expand to work fine
+                    time.sleep(0.4)
+            ########################################get activities
+            time.sleep(0.5)
             WebDriverWait(browser, 10).until(ExpC.presence_of_all_elements_located((By.CLASS_NAME, "activity-item")))
             atividades = browser.find_elements(By.CLASS_NAME, "activity-item")
         except Exception as e:
@@ -97,7 +116,7 @@ def pending_tasks(all_time=False):
                             browser.switch_to.window(browser.window_handles[-1])
 
                             WebDriverWait(browser, 10).until(
-                                ExpC.presence_of_element_located((By.CSS_SELECTOR, 'div.submissionstatustable'))
+                                ExpC.visibility_of_element_located((By.CSS_SELECTOR, 'div.submissionstatustable'))
                             )
                             table = browser.find_element(By.CSS_SELECTOR, 'div.submissionstatustable table')
                             first_td = table.find_element(By.CSS_SELECTOR, 'tbody > tr:first-child td')
@@ -146,18 +165,19 @@ def login_moodle(user: str, password: str, all_time: bool = False):
     if "my" in browser.current_url:
         print('Login bem-sucedido.')
         return {"status": "success", "data": pending_tasks(all_time)}
-    try:
-        table = browser.find_element(By.CSS_SELECTOR, "div.table-responsive table")
-        id_links = table.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
-        links = [link.get_attribute('href') for link in id_links]
-        user_ids = [link.text for link in id_links]
-        for i in range(len(user_ids)):
-            curriculum_numbers.append((user_ids[i],links[i]))
-        print("Múltiplos IDs de usuário:", user_ids)
-        return {"status": "multiple_ids", "data": curriculum_numbers}
-    except:
-        print('Login falhou ou estrutura da tabela não encontrada.')
-        return {"status": "error", "data": None}
+    else:
+        try:
+            table = browser.find_element(By.CSS_SELECTOR, "div.table-responsive table")
+            id_links = table.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
+            links = [link.get_attribute('href') for link in id_links]
+            user_ids = [link.text for link in id_links]
+            for i in range(len(user_ids)):
+                curriculum_numbers.append((user_ids[i],links[i]))
+            print("Múltiplos IDs de usuário:", user_ids)
+            return {"status": "multiple_ids", "data": curriculum_numbers}
+        except:
+            print('Login falhou ou estrutura da tabela não encontrada.')
+            return {"status": "error", "data": None}
 
 def select_identity(user_id_page):
     """
