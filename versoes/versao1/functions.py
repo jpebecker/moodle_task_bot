@@ -1,5 +1,4 @@
-import re
-import time
+import re,time
 import pandas as pd
 from datetime import datetime
 from selenium import webdriver
@@ -11,11 +10,12 @@ from selenium.webdriver.support import expected_conditions as ExpC
 disciplinas = []
 tarefas_pendentes = []
 
-def parse_text(text: str) -> list:
+def parse_text(text: str) -> datetime | None:
     """
     Recebe um texto poluido com a palavra-chave 'Vencimento'
     e retorna um datetime
     """
+    data_obj = None
 
     #get all ocurrances after 'Vencimento:' by a regex
     matches = re.findall(r'Vencimento:\s*([a-zçãé\-]+),\s*(\d{1,2})\s*([a-zç]+)\.\s*(\d{4}),\s*(\d{2}:\d{2})', text,
@@ -52,7 +52,7 @@ def pending_tasks(browser, all_time=False):
         print(f'-> Erro ao carregar disciplinas: {exc}')
         return None
 
-    for subject in disciplinas_semestre_atual: #get the url and and text from the subjects list of Li
+    for subject in disciplinas_semestre_atual: #get the url and the text from the subjects list of Li
         try:
             link_elem = subject.find_element(By.TAG_NAME, 'a')
             nome = link_elem.text

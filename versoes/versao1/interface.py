@@ -70,8 +70,8 @@ class App(tk.Tk):
         login_btn.grid(row=4, column=0, columnspan=2, pady=10)
 
         self.show_browser = tk.BooleanVar()
-        shwo_browser_checkbox = tk.Checkbutton(self, text="Mostrar execução?", variable=self.show_browser)
-        shwo_browser_checkbox.grid(row=6, column=0, columnspan=2)
+        show_browser_checkbox = tk.Checkbutton(self, text="Mostrar execução?", variable=self.show_browser)
+        show_browser_checkbox.grid(row=6, column=0, columnspan=2)
 
         self.clear_btn = None  # Inicializa sem o botão
         self.load_credentials()
@@ -108,7 +108,7 @@ class App(tk.Tk):
 
     def run_login(self, user, password, all_time, browser_state):
         """
-        Switch the UI and start the web scrapping Login Function and waits for the status result, if sucessful it will
+        Switch the UI and start the web scrapping Login Function and waits for the status result, if successful it will
         get back the dataframe of results and call the show results function
         """
         self.after(0, self.show_logged_screen)
@@ -178,7 +178,7 @@ class App(tk.Tk):
 
     def show_logged_screen(self):
         """
-        Change the screen of the app to a In Progress one
+        Change the screen of the app to an In Progress one
         """
         for widget in self.winfo_children():
             widget.destroy()
@@ -274,7 +274,7 @@ class App(tk.Tk):
 
     def select_identity(self, user_link, window):
         """
-        Delete the curriculum option window and calls another function to properly set the adress of the user selected
+        Delete the curriculum option window and calls another function to properly set the address of the user selected
         """
         window.destroy()
         threading.Thread(target=self._run_select_identity, args=(user_link,), daemon=True).start()
