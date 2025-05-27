@@ -1,5 +1,4 @@
-import re
-import time
+import re,time
 import pandas as pd
 from datetime import datetime
 from selenium import webdriver
@@ -8,22 +7,15 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ExpC
 
-#browser options
-options = Options()
-#options.add_argument("--headless")
-options.add_argument("--disable-gpu")
-options.add_argument("--window-size=1920,1080")
-options.add_argument("--disable-dev-shm-usage")
-
-browser = webdriver.Chrome(options=options)
 disciplinas = []
 tarefas_pendentes = []
 
-def parse_text(text: str) -> list:
+def parse_text(text: str) -> datetime | None:
     """
     Recebe um texto poluido com a palavra-chave 'Vencimento'
     e retorna um datetime
     """
+    data_obj = None
 
     #get all ocurrances after 'Vencimento:' by a regex
     matches = re.findall(r'Vencimento:\s*([a-zçãé\-]+),\s*(\d{1,2})\s*([a-zç]+)\.\s*(\d{4}),\s*(\d{2}:\d{2})', text,
@@ -42,7 +34,7 @@ def parse_text(text: str) -> list:
 
     return data_obj
 
-def pending_tasks(all_time=False):
+def pending_tasks(browser, all_time=False):
     """
     It collects all subjects in the latest semester and then loop through their pages in UniThreading mode(in this version)
     Then, in the subjects page it loop through all activities getting their due dates and then enter their pages too to
@@ -60,7 +52,7 @@ def pending_tasks(all_time=False):
         print(f'-> Erro ao carregar disciplinas: {exc}')
         return None
 
-    for subject in disciplinas_semestre_atual: #get the url and and text from the subjects list of Li
+    for subject in disciplinas_semestre_atual: #get the url and the text from the subjects list of Li
         try:
             link_elem = subject.find_element(By.TAG_NAME, 'a')
             nome = link_elem.text
@@ -149,11 +141,21 @@ def pending_tasks(all_time=False):
     print(df)
     return df
 
-def login_moodle(user: str, password: str, all_time: bool = False):
+def login_moodle(user: str, password: str, all_time: bool = False, show_browser: bool = False):
     """
     This function occurs after the user click in Login at the interface and have exception routes for error in credentials
     and if the user have multiple curriculum numbers
     """
+    # browser options
+    options = Options()
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-dev-shm-usage")
+    if not show_browser:
+        options.add_argument("--headless")
+
+    browser = webdriver.Chrome(options=options)
+
     browser.get("https://presencial.moodle.ufsc.br/login")
     WebDriverWait(browser, 10).until(ExpC.element_to_be_clickable((By.ID, 'username')))
     browser.find_element(By.ID, "username").send_keys(user)
@@ -164,7 +166,7 @@ def login_moodle(user: str, password: str, all_time: bool = False):
 
     if "my" in browser.current_url:
         print('Login bem-sucedido.')
-        return {"status": "success", "data": pending_tasks(all_time)}
+        return {"status": "success", "data": pending_tasks(browser,all_time)}
     else:
         try:
             table = browser.find_element(By.CSS_SELECTOR, "div.table-responsive table")
@@ -184,6 +186,14 @@ def select_identity(user_id_page):
     In a multi-curriculum number case, this function selects the curriculum number that the user wants to access moodle.
     OBS: this is the LAST step in the multi-curriculum number case
     """
+    # browser options
+    options = Options()
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--headless")
+
+    browser = webdriver.Chrome(options=options)
     try:
         WebDriverWait(browser, 10).until(
             ExpC.presence_of_element_located((By.CSS_SELECTOR, "td.cell.c1 a")))

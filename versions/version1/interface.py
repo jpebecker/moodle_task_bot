@@ -5,8 +5,9 @@ from tkinter import ttk
 from pathlib import Path
 from datetime import datetime
 from tkinter import messagebox
+from selenium import webdriver
 from cryptography.fernet import Fernet
-
+from selenium.webdriver.chrome.options import Options
 ########################################################Credentials Section
 #credentials path
 CREDENTIALS_DIR = Path.home() / "Documents" / "Moodle_Credentials"
@@ -38,6 +39,7 @@ class App(tk.Tk):
         self.pass_entry = None
         self.save_credentials_var = None
         self.all_time_var = None
+        self.show_browser = None
         self.clear_btn = None  #botao de limpar credenciais (se for usado)
         self.create_login_ui()
 
@@ -61,11 +63,15 @@ class App(tk.Tk):
         save_checkbox.grid(row=2, column=0, columnspan=2)
 
         self.all_time_var = tk.BooleanVar()
-        all_time_checkbox = tk.Checkbutton(self, text="All Published", variable=self.all_time_var)
+        all_time_checkbox = tk.Checkbutton(self, text="Todas as Tarefas com prazo", variable=self.all_time_var)
         all_time_checkbox.grid(row=3, column=0, columnspan=2)
 
         login_btn = tk.Button(self, text="Login", width=20, command=self.handle_login)
         login_btn.grid(row=4, column=0, columnspan=2, pady=10)
+
+        self.show_browser = tk.BooleanVar()
+        show_browser_checkbox = tk.Checkbutton(self, text="Mostrar execução?", variable=self.show_browser)
+        show_browser_checkbox.grid(row=6, column=0, columnspan=2)
 
         self.clear_btn = None  # Inicializa sem o botão
         self.load_credentials()
@@ -98,16 +104,16 @@ class App(tk.Tk):
             except Exception as e:
                 messagebox.showerror("Erro", f"Erro ao salvar credenciais: {e}")
 
-        threading.Thread(target=self.run_login, args=(user, password, self.all_time_var.get()), daemon=True).start()
+        threading.Thread(target=self.run_login, args=(user, password, self.all_time_var.get(), self.show_browser.get()), daemon=True).start()
 
-    def run_login(self, user, password, all_time):
+    def run_login(self, user, password, all_time, browser_state):
         """
-        Switch the UI and start the web scrapping Login Function and waits for the status result, if sucessful it will
+        Switch the UI and start the web scrapping Login Function and waits for the status result, if successful it will
         get back the dataframe of results and call the show results function
         """
         self.after(0, self.show_logged_screen)
 
-        result = functions.login_moodle(user, password, all_time=all_time)
+        result = functions.login_moodle(user, password,show_browser=browser_state, all_time=all_time)
 
         if result["status"] == "success":
             df = result["data"]
@@ -172,7 +178,7 @@ class App(tk.Tk):
 
     def show_logged_screen(self):
         """
-        Change the screen of the app to a In Progress one
+        Change the screen of the app to an In Progress one
         """
         for widget in self.winfo_children():
             widget.destroy()
@@ -239,7 +245,7 @@ class App(tk.Tk):
                     tag = 'atrasado'
                 else:
                     tag = 'pendente'
-               
+
             elif 'enviado com atraso' in status:
                 tag = 'atrasado'
 
@@ -268,7 +274,7 @@ class App(tk.Tk):
 
     def select_identity(self, user_link, window):
         """
-        Delete the curriculum option window and calls another function to properly set the adress of the user selected
+        Delete the curriculum option window and calls another function to properly set the address of the user selected
         """
         window.destroy()
         threading.Thread(target=self._run_select_identity, args=(user_link,), daemon=True).start()
@@ -279,7 +285,15 @@ class App(tk.Tk):
         """
         try:
             functions.select_identity(user_page)
-            df = functions.pending_tasks(self.all_time_var.get())
+            # browser options
+            options = Options()
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--headless")
+
+            browser = webdriver.Chrome(options=options)
+            df = functions.pending_tasks(browser,self.all_time_var.get())
             self.after(0, lambda: self.show_results_screen(df))
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Erro", f"Erro ao selecionar identidade: {e}"))
