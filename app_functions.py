@@ -6,8 +6,7 @@ from selenium.webdriver.support import expected_conditions as ExpC
 
 def parse_date_text(text: str) -> datetime | None:
     """
-    Recebe um texto poluido com a palavra-chave 'Vencimento'
-    e retorna um datetime
+    Get all the description text at entry and returns only the due date
     """
     data_obj = None
 
@@ -29,6 +28,9 @@ def parse_date_text(text: str) -> datetime | None:
     return data_obj
 
 def get_subjects(active_browser):
+    """
+    This function returns a Subjects tuple(name,url) list made with all the results in the latest semester
+    """
     subjects = []
     try: #get all subjects in the latest semester 'semestres_box[0]'
         WebDriverWait(active_browser, 15).until(ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox")))
@@ -50,64 +52,73 @@ def get_subjects(active_browser):
             continue
     return subjects
 
-def get_activities(active_browser,subject_url:str,all_time=False):
-    atividades = None
+def get_activities(active_browser, subject_url: str, all_time=False):
+    """
+    Returns a list of activities objects(name,url,due-date) collected in the subject page, considering the
+    parameter all_time.
+
+    all_time == False means that this function only return the further activities from today's date
+    all_time == True means that this function will return all activities with delivery date.
+    """
     actual_subject_activities = []
-    actual_subject_activities_url = []
     try:
         active_browser.get(subject_url)
-        WebDriverWait(active_browser, 10).until(ExpC.element_to_be_clickable((By.ID, "collapsesections")))
-        #######################################GET ALL SECTIONS OF ACTIVITIES OPEN AT THE SUBJECT PAGE
-        botao = active_browser.find_element(By.ID, "collapsesections") #sections state btn
-        aria_expanded = botao.get_attribute("aria-expanded")
 
-        if aria_expanded == "true": #if the btn is in "Close All" state
-            botao.click()  #close all
-            time.sleep(0.4) #delay
-            botao = active_browser.find_element(By.ID, "collapsesections") #recapture the btn
-            botao.click()  #open all
-        else: #if the btn is on "Expand All' state
-            for _ in range(3): #to guarantee sucess it will loop through
-                botao = active_browser.find_element(By.ID, "collapsesections")
-                botao.click() #expand-close-expand to work fine
-                time.sleep(0.4)
-        ########################################get activities
-        time.sleep(0.5)
-        WebDriverWait(active_browser, 10).until(ExpC.presence_of_all_elements_located((By.CLASS_NAME, "activity-item")))
+        #get section expand buttons
+        WebDriverWait(active_browser, 10).until(
+            ExpC.element_to_be_clickable((By.ID, "collapsesections")))
+
+        expand_btn = active_browser.find_element(By.ID, "collapsesections")
+        expand_btn_state = expand_btn.get_attribute("aria-expanded")
+
+        if expand_btn_state == "true":
+            expand_btn.click()  #close all
+            time.sleep(1)
+            expand_btn.click()  #open all
+        else:
+            expand_btn.click()  #open all
+            time.sleep(0.5)
+            expand_btn.click()  # close all
+            time.sleep(1)
+            expand_btn.click()  # open all
+        #wait activities
+        WebDriverWait(active_browser, 10).until(
+            ExpC.presence_of_all_elements_located((By.CLASS_NAME, "activity-item")))
+        #wait descriptions
+        time.sleep(1)
         atividades = active_browser.find_elements(By.CLASS_NAME, "activity-item")
+
+        for atividade in atividades:
+            try:
+                activity_name = atividade.get_attribute("data-activityname")
+                descricao_div = atividade.find_element(By.CLASS_NAME, "description")
+                descricao_texto = descricao_div.find_element(By.CLASS_NAME, "description-inner").text
+
+                if activity_name and 'Vencimento:' in descricao_texto:
+                    activity_due_date = parse_date_text(descricao_texto)
+                    if all_time or activity_due_date > datetime.today():
+                        url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
+                        activity_url = url_element.get_attribute('href')
+                        actual_subject_activities.append((activity_name, activity_url, activity_due_date))
+            except Exception:
+                continue
+
     except Exception as e:
-        print(f"Erro ao carregar atividades: {e}")
-
-    for atividade in atividades:
-        try:
-            activity_name = atividade.get_attribute("data-activityname")
-            descricao_div = atividade.find_element(By.CLASS_NAME, "description")
-            descricao_texto = descricao_div.find_element(By.CLASS_NAME, "description-inner").text
-
-            if activity_name and 'Vencimento:' in descricao_texto:
-                activity_due_date = parse_date_text(descricao_texto)
-
-                if all_time or activity_due_date > datetime.now():
-                    #activity link
-                    url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
-                    activity_url = url_element.get_attribute('href')
-                    actual_subject_activities.append((activity_name,activity_url,activity_due_date))
-
-        except Exception as exc:
-            #print(exc)
-            continue
+        print(f"Erro ao capturar atividades: {e}")
 
     return actual_subject_activities
 
 def get_activities_status(active_browser,activity_url:str):
-    # get into activity page
+    """
+    Enters the activity url and catch the status, returning it individually.
+    """
     try:
         active_browser.execute_script("window.open(arguments[0]);", activity_url)
         active_browser.switch_to.window(active_browser.window_handles[-1])
 
-        WebDriverWait(active_browser, 10).until(
-            ExpC.visibility_of_element_located((By.CSS_SELECTOR, 'div.submissionstatustable'))
-        )
+        WebDriverWait(active_browser, 15).until(
+            ExpC.visibility_of_element_located((By.CSS_SELECTOR, 'div.submissionstatustable')))
+
         table = active_browser.find_element(By.CSS_SELECTOR, 'div.submissionstatustable table')
         first_td = table.find_element(By.CSS_SELECTOR, 'tbody > tr:first-child td')
         status = first_td.text.strip()
@@ -122,9 +133,9 @@ def get_activities_status(active_browser,activity_url:str):
 
 def login_moodle(active_browser,user:str,secret:str):
     """
-        This function occurs after the user click in Login at the interface and have exception routes for error in credentials
-        and if the user have multiple curriculum numbers
-        """
+        This function occurs after the user click in Login at the interface and have exception routes
+        for error in credentials or if the user have multiple curriculum numbers
+    """
 
     active_browser.get("https://presencial.moodle.ufsc.br/login")
     WebDriverWait(active_browser, 10).until(ExpC.element_to_be_clickable((By.ID, 'username')))
@@ -153,7 +164,8 @@ def login_moodle(active_browser,user:str,secret:str):
 
 def select_curriculum_number(active_browser,user_id_page):
     """
-        In a multi-curriculum number scenario, this function selects the curriculum number that the user wants to access moodle.
+        In a multi-curriculum number scenario, this function selects the curriculum number that the user
+        wants to access moodle.
         OBS: this is the LAST step in the multi-curriculum number case
         """
     try:
