@@ -147,7 +147,7 @@ class App(tk.Tk):
         """
         Get the local path where the user notes were saved
         """
-        NOTES_DIR = CREDENTIALS_DIR / "notes"
+        NOTES_DIR = Path.home() / "Documents" / "Moodle_notes"
         NOTES_DIR.mkdir(exist_ok=True)
         return NOTES_DIR / f"{self.username}_notes.txt"
 
@@ -310,7 +310,7 @@ class App(tk.Tk):
             self.after(0, self.create_main_ui)
 
     def update_results(self, activity:dict):
-        print('===========================ATIVIDADE NOVA REGISTRADA=====================================')
+        print('\n===========================ATIVIDADE NOVA REGISTRADA=====================================')
         print(activity)
         self.title("Atividades Retornadas")
         self.all_activities.append(activity)
@@ -356,22 +356,23 @@ class App(tk.Tk):
         for subject in subjects_list:
             subject_name = subject[0]
             subject_url = subject[1]
-            print(f'>>> Percorrendo: {subject_name}')
             subject_activities = functions.get_activities(active_browser=self.main_browser, subject_url=subject_url,
                                                           all_time=self.all_time_var.get())
-            for activity in subject_activities:
-                activity_name = activity[0]
-                activity_url = activity[1]
-                activity_due_date = activity[2]
-                activity_status = functions.get_activities_status(active_browser=self.main_browser,
-                                                                  activity_url=activity_url)
-                task = {
-                    'Disciplina': subject_name,
-                    'Tarefa': activity_name,
-                    'Prazo': activity_due_date.strftime("%d/%m/%Y"),
-                    'Status': activity_status,
-                }
-                self.after(0, lambda t=task: self.update_results(t)) #mutable value to keep posting new activities
+            print(f'>>> Percorrendo: {subject_name}')
+            if subject_activities:
+                for activity in subject_activities:
+                    activity_name = activity[0]
+                    activity_url = activity[1]
+                    activity_due_date = activity[2]
+                    activity_status = functions.get_activities_status(active_browser=self.main_browser,
+                                                                      activity_url=activity_url)
+                    task = {
+                        'Disciplina': subject_name,
+                        'Tarefa': activity_name,
+                        'Prazo': activity_due_date.strftime("%d/%m/%Y"),
+                        'Status': activity_status,
+                    }
+                    self.after(0, lambda t=task: self.update_results(t)) #mutable value to keep posting new activities
 
         self.after(0, lambda : self.has_ended_ui())
 
@@ -386,7 +387,8 @@ class App(tk.Tk):
             self.Main_Title.config(fg="green", font=("Arial", 14, "bold"))
         if self.Description:
             self.Description.config(
-                text="Todos os resultados foram exibidos.\nVocê pode revisar a tabela abaixo."
+                text="Todos os resultados foram exibidos.\n"
+                     "Você pode revisar a tabela abaixo."
             )
         print('end')
 

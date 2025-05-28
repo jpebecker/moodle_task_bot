@@ -73,21 +73,25 @@ def get_activities(active_browser, subject_url: str, all_time=False):
 
         if expand_btn_state == "true":
             expand_btn.click()  #close all
-            time.sleep(1)
+            time.sleep(0.5)
             expand_btn.click()  #open all
         else:
             expand_btn.click()  #open all
             time.sleep(0.5)
             expand_btn.click()  # close all
-            time.sleep(1)
+            time.sleep(0.5)
             expand_btn.click()  # open all
         #wait activities
         WebDriverWait(active_browser, 10).until(
             ExpC.presence_of_all_elements_located((By.CLASS_NAME, "activity-item")))
         #wait descriptions
         time.sleep(1)
-        atividades = active_browser.find_elements(By.CLASS_NAME, "activity-item")
-
+        try:
+            active_browser.find_elements(By.CLASS_NAME, "activity-item")
+        except Exception:
+            print('error finding activities')
+        finally:
+            atividades = active_browser.find_elements(By.CLASS_NAME, "activity-item")
         for atividade in atividades:
             try:
                 activity_name = atividade.get_attribute("data-activityname")
@@ -99,7 +103,10 @@ def get_activities(active_browser, subject_url: str, all_time=False):
                     if all_time or activity_due_date > datetime.today():
                         url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
                         activity_url = url_element.get_attribute('href')
-                        actual_subject_activities.append((activity_name, activity_url, activity_due_date))
+                        if activity_name and activity_url and activity_due_date:
+                            actual_subject_activities.append((activity_name, activity_url, activity_due_date))
+                        else:
+                            print('missing parameters at sorted activity')
             except Exception:
                 continue
 
