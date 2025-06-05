@@ -1,4 +1,4 @@
-import web_functions as functions  # crawler functions
+import app_functions as functions  # crawler functions
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -8,8 +8,6 @@ from tkinter import messagebox
 from selenium import webdriver
 from cryptography.fernet import Fernet
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 ########################################################Credentials Section
 #credentials path
 CREDENTIALS_DIR = Path.home() / "Documents" / "Moodle_Credentials"
@@ -478,8 +476,8 @@ class App(tk.Tk):
 
 def create_browser(show_browser=False):
     """
-    Instantiate custom virtual browser to be used in all the execution
-    (because it's necessary to keep the authentication)
+    Instantiate custom virtual browser to be used in all the execution (because its necessary
+    to keep the authentication)
     """
     # browser options
     options = Options()
@@ -489,10 +487,7 @@ def create_browser(show_browser=False):
     if not show_browser:
         options.add_argument("--headless")
 
-    # Use webdriver-manager to install and manage the ChromeDriver
-    service = Service(ChromeDriverManager().install())
-    browser = webdriver.Chrome(service=service, options=options)
-
+    browser = webdriver.Chrome(options=options)
     return browser
 ##########################--------------------------------------Main loop
 if __name__ == '__main__':
