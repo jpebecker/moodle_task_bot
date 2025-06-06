@@ -1,4 +1,5 @@
 import web_functions as functions  # crawler functions
+import sys,os
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -44,6 +45,9 @@ class App(tk.Tk):
         self.table = None #results table
         self.all_activities = [] #activities list
         self.clear_btn = None  #clear credentials btn
+        self.notes_text = None
+        icon_path = get_icon_path("assets/icone.ico") #find the icon to use as tkinter interface icon
+        self.iconbitmap(icon_path) #set the attribute icon
         self.create_main_ui()
 
     def create_main_ui(self):
@@ -85,6 +89,10 @@ class App(tk.Tk):
 
         faq_btn = tk.Button(self, text="?", width=5, command=self.show_faq_screen)
         faq_btn.grid(row=8, column=1, sticky="se")
+
+        footer = tk.Label(self, text=f"©{datetime.today().year} JpeBecker. Todos os direitos reservados.",
+                          font=("Arial", 9,"bold"), bd=1, relief=tk.SUNKEN, anchor="center")
+        footer.grid(row=9, column=0, columnspan=2, sticky="we", pady=(10, 0))
 
         self.clear_btn = None
         self.load_credentials()
@@ -260,19 +268,24 @@ class App(tk.Tk):
         self.table.tag_configure("enviado", background="#CCFFCC")
         self.table.tag_configure("atrasado", background="#FFCCCC")
 
-        # ======== ABA: Anotações ========
+        footer = tk.Label(self, text=f"©{datetime.today().year} JpeBecker. Todos os direitos reservados.",
+                          font=("Arial", 9, "bold"), bd=1, relief=tk.SUNKEN, anchor="center")
+        footer.pack(side=tk.BOTTOM, fill=tk.X)
+
+        ######NOTES section
         notes_frame = tk.Frame(notebook)
         tk.Label(notes_frame, text="Anotações Pessoais", font=("Arial", 12)).pack(pady=5)
+
         self.notes_text = tk.Text(notes_frame, wrap="word", height=20)
         self.notes_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # carregar anotações se houver
+        #load notes to the label
         self.load_notes()
 
         save_btn = tk.Button(notes_frame, text="Salvar Anotações", command=self.save_notes)
         save_btn.pack(pady=5)
 
-        # ======== Adicionar abas no notebook ========
+        #add both sections/frames to the Notebook
         notebook.add(activities_frame, text="Atividades")
         notebook.add(notes_frame, text="Anotações")
 
@@ -395,25 +408,26 @@ class App(tk.Tk):
         print('end')
 
     def show_faq_screen(self):
-        """
-        Show FAQ screen
-        """
+        '''
+        show a faq screen in the UI
+        '''
+        #limpa a tela
         for widget in self.winfo_children():
             widget.destroy()
 
         self.title("Sobre a Interface - (FAQ)")
-        self.geometry("400x350")
-        #grid configs
+        self.geometry("400x400")
+
+        #Grid configs
         self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(5, weight=0)
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(2, weight=1)
 
-        #title
         faq_title = tk.Label(self, text="Perguntas Frequentes", font=("Arial", 14))
         faq_title.grid(row=0, column=0, columnspan=3, pady=10)
 
-        #answer to questions
         faq_text = (
             "1. Onde são salvas as credenciais?\n"
             "   - Ao marcar a caixa 'Salvar credenciais' antes de fazer login, as suas credenciais do moodle serão salvas na pasta Documentos de seu computador.\n\n"
@@ -423,19 +437,29 @@ class App(tk.Tk):
             "   - Exibe o navegador durante o processo de coleta de dados.\n\n"
             "4. Como apago minhas credenciais salvas?\n"
             "   - Use o botão 'Limpar credenciais salvas' na tela de login.\n\n"
-            "OBS: A coleta deste aplicativo esta sujeita a erros e não substitui o uso de seu moodle pessoal"
+            "OBS: A coleta deste aplicativo está sujeita a erros e não substitui o uso de seu moodle pessoal"
         )
-
         faq_label = tk.Label(self, text=faq_text, justify="left", wraplength=350, anchor="w")
         faq_label.grid(row=1, column=0, columnspan=3, padx=20, sticky="nw")
 
-        #back to main UI
+        spacer = tk.Label(self, text="")
+        spacer.grid(row=2, column=0)
+
         back_btn = tk.Button(self, text="Voltar", command=self.create_main_ui)
         back_btn.grid(row=3, column=2, pady=10, padx=10, sticky="e")
 
-        #about process Btn
         process_btn = tk.Button(self, text="Sobre o BOT", command=self.show_bot_info)
         process_btn.grid(row=3, column=0, pady=10, padx=10, sticky="w")
+
+        footer = tk.Label(
+            self,
+            text=f"©{datetime.today().year} JpeBecker. Todos os direitos reservados.",
+            font=("Arial", 9, "bold"),
+            bd=1,
+            relief=tk.SUNKEN,
+            anchor="center"
+        )
+        footer.grid(row=5, column=0, columnspan=3, sticky="we", pady=(10, 0))
 
     def show_bot_info(self):
         """
@@ -448,6 +472,7 @@ class App(tk.Tk):
         self.geometry("600x500")
         #grid configs
         self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(5, weight=1)  # linha inferior para manter rodapé no fundo
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(2, weight=1)
@@ -476,6 +501,10 @@ class App(tk.Tk):
         back_btn = tk.Button(self, text="Voltar", command=self.show_faq_screen)
         back_btn.grid(row=3, column=2, pady=10, padx=10, sticky="e")
 
+        footer = tk.Label(self, text=f"©{datetime.today().year} JpeBecker. Todos os direitos reservados.",
+                          font=("Arial", 9,"bold"), bd=1, relief=tk.SUNKEN, anchor="center")
+        footer.grid(row=5, column=0, columnspan=3, sticky="we", pady=(10, 0))
+
 def create_browser(show_browser=False):
     """
     Instantiate custom virtual browser to be used in all the execution
@@ -494,7 +523,9 @@ def create_browser(show_browser=False):
     browser = webdriver.Chrome(service=service, options=options)
 
     return browser
-##########################--------------------------------------Main loop
-if __name__ == '__main__':
-    app = App()
-    app.mainloop()
+
+def get_icon_path(relative_path):
+    """find the icon after build"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
