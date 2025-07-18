@@ -1,5 +1,5 @@
-import PyInstaller.__main__
 from pathlib import Path
+import PyInstaller.__main__
 
 main_script = 'main.py'
 app_name = 'MoodleBot'

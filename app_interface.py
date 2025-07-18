@@ -12,8 +12,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 ########################################################Credentials Section
-#credentials path
-CREDENTIALS_DIR = Path.home() / "Documents" / "Moodle_Credentials"
+CREDENTIALS_DIR = Path.home() / "Documents" / "Moodle_Credentials" #credentials path
 CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials.txt"
 KEY_FILE = CREDENTIALS_DIR / "key.key"
 #check if directory path exist
@@ -34,7 +33,7 @@ class App(tk.Tk):
         super().__init__()
         self.resizable(False, False)
         self.user_entry = None #entry for username value
-        self.username = None
+        self.username = None #username variable
         self.pass_entry = None #entry for password value
         self.Main_Title = None #title text
         self.Description = None #below title text
@@ -52,14 +51,14 @@ class App(tk.Tk):
 
     def create_main_ui(self):
         """
-        Show all the necessary UI elements of Login
+        Show all the necessary UI elements in Main Page
         """
         for widget in self.winfo_children():
             widget.destroy()
 
         #window and grid config
         self.title("Moodle Activity Bot")
-        self.geometry("300x250")
+        self.geometry("300x275")
         self.grid_rowconfigure(8, weight=1)
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
@@ -149,9 +148,11 @@ class App(tk.Tk):
 
             self.after(0, lambda: self.show_curriculum_opt(users_ids, links_ids))
 
-        else:  #if status == error
+        else:
+            print(result["status"])#if status == error
             self.after(0, lambda: messagebox.showerror("Erro", f"Falha nas credenciais\n"))
             self.after(0, self.create_main_ui)
+            self.after(self.main_browser.close())
 
     def get_notes_file_path(self):
         """
@@ -232,10 +233,11 @@ class App(tk.Tk):
 
     def show_logged_screen(self):
         """
-        Change the screen of the app to a 'Search In Progress' one and initialize the results table
+        Change the Main screen of the app to a 'Search In Progress' one and initialize the results table
         """
+
         for widget in self.winfo_children():
-            widget.destroy()
+            widget.destroy()#clear all UI elements before
 
         self.title("Conectado ao Moodle")
         self.geometry("900x500")
@@ -243,7 +245,7 @@ class App(tk.Tk):
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True)
 
-        # ======== ABA: Atividades ========
+        #Activities section
         activities_frame = tk.Frame(notebook)
         self.Main_Title = tk.Label(activities_frame, text="Login realizado com sucesso!", font=("Arial", 14))
         self.Main_Title.pack(pady=10)
@@ -332,6 +334,9 @@ class App(tk.Tk):
         self.update_table()
 
     def update_table(self):
+        """
+        Update activities table with new results
+        """
         if self.table.get_children():
             for item in self.table.get_children():
                 self.table.delete(item)
@@ -371,11 +376,12 @@ class App(tk.Tk):
         for subject in subjects_list:
             subject_name = subject[0]
             subject_url = subject[1]
-            subject_activities = functions.get_activities(active_browser=self.main_browser, subject_url=subject_url,
-                                                          all_time=self.all_time_var.get())
             print(f'>>> Percorrendo: {subject_name}')
-            if subject_activities:
-                for activity in subject_activities:
+            subject_activities = functions.get_activities(active_browser=self.main_browser, subject_url=subject_url)
+            if subject_activities is not None:
+                print(f'{subject_name} has content blocks')
+                selected_activities = functions.loop_activities(activities_list=subject_activities,all_time=self.all_time_var.get())
+                for activity in selected_activities:
                     activity_name = activity[0]
                     activity_url = activity[1]
                     activity_due_date = activity[2]
@@ -389,6 +395,9 @@ class App(tk.Tk):
                     }
                     self.after(0, lambda t=task: self.update_results(t)) #mutable value to keep posting new activities
 
+            else:
+                print(f'{subject_name} has NONE content blocks')
+                continue
         self.after(0, lambda : self.has_ended_ui())
 
     def has_ended_ui(self):
@@ -408,9 +417,9 @@ class App(tk.Tk):
         print('end')
 
     def show_faq_screen(self):
-        '''
+        """
         show a faq screen in the UI
-        '''
+        """
         #limpa a tela
         for widget in self.winfo_children():
             widget.destroy()
@@ -505,10 +514,11 @@ class App(tk.Tk):
                           font=("Arial", 9,"bold"), bd=1, relief=tk.SUNKEN, anchor="center")
         footer.grid(row=5, column=0, columnspan=3, sticky="we", pady=(10, 0))
 
+##########################External functions
 def create_browser(show_browser=False):
     """
     Instantiate custom virtual browser to be used in all the execution
-    (because it's necessary to keep the authentication)
+    (only one virtual browser is used to keep the authentication)
     """
     # browser options
     options = Options()
