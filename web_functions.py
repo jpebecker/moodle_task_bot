@@ -1,199 +1,307 @@
-import re,time
+import re
+import time
+import logging
 from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ExpC
 
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 def parse_date_text(text: str) -> datetime | None:
     """
-    Get all the description text and returns only the due date
+    Extract the first valid due date from an activity description string.
+
+    The function searches for occurrences of the Portuguese keyword
+    ``"Vencimento:"`` followed by a date in the format used by Moodle UFSC,
+    e.g. ``"Vencimento: sábado, 15 jun. 2024, 23:59"``.
+
+    Args:
+        text: Raw description text scraped from a Moodle activity block.
+
+    Returns:
+        A :class:`datetime` object for the first match, or ``None`` if no
+        valid date pattern is found.
     """
-    data_obj = None
-
-    #get all ocurrances after 'Vencimento:' by a regex
-    matches = re.findall(r'Vencimento:\s*([a-zçãé\-]+),\s*(\d{1,2})\s*([a-zç]+)\.\s*(\d{4}),\s*(\d{2}:\d{2})', text,
-                         re.IGNORECASE)
-
     meses = {
         "jan": 1, "fev": 2, "mar": 3, "abr": 4, "mai": 5, "jun": 6,
-        "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12
+        "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12,
     }
+
+    matches = re.findall(
+        r'Vencimento:\s*([a-zçãé\-]+),\s*(\d{1,2})\s*([a-zç]+)\.\s*(\d{4}),\s*(\d{2}:\d{2})',
+        text,
+        re.IGNORECASE,
+    )
 
     for _, dia, mes_abrev, ano, hora in matches:
         mes_num = meses.get(mes_abrev.lower()[:3])
         if mes_num:
             data_str = f"{dia.zfill(2)}/{mes_num:02}/{ano} {hora}"
-            data_obj = datetime.strptime(data_str, "%d/%m/%Y %H:%M")
+            return datetime.strptime(data_str, "%d/%m/%Y %H:%M")  # Return on first valid match
 
-    return data_obj
+    return None
 
-def get_subjects(active_browser):
+
+def toggle_page_extended(active_browser):
     """
-    This function returns a Subjects tuple(name,url) list made with all the results in the latest semester
+    Ensure all course sections on the current page are fully expanded.
+
+    If the toggle button reports the sections are already expanded, the
+    function collapses them first and then re-expands to force a complete
+    DOM refresh before activity elements are queried.
+
+    Args:
+        active_browser: Active :class:`selenium.webdriver.Chrome` instance.
+    """
+    expand_btn = active_browser.find_element(By.ID, "collapsesections")
+    is_expanded = expand_btn.get_attribute("aria-expanded") == "true"
+
+    if is_expanded:
+        expand_btn.click()      # Collapse all sections
+        time.sleep(0.5)
+        expand_btn.click()      # Re-expand all sections
+    else:
+        expand_btn.click()      # Expand all sections
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core scraping functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_subjects(active_browser) -> list | None:
+    """
+    Collect all enrolled subjects from the Moodle dashboard for the most
+    recent semester.
+
+    The function targets the first ``.box.py-3.generalbox`` element on the
+    page, which corresponds to the current semester block.
+
+    Args:
+        active_browser: Active :class:`selenium.webdriver.Chrome` instance,
+                        already authenticated and on the dashboard page.
+
+    Returns:
+        A list of ``(name, url)`` tuples, one per subject, or ``None`` if
+        the expected DOM structure could not be located.
     """
     subjects = []
-    try: #get all subjects in the latest semester 'semestres_box[0]'
-        WebDriverWait(active_browser, 15).until(ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox")))
+    try:
+        WebDriverWait(active_browser, 15).until(
+            ExpC.presence_of_all_elements_located((By.CSS_SELECTOR, ".box.py-3.generalbox"))
+        )
         semestres_box = active_browser.find_elements(By.CSS_SELECTOR, ".box.py-3.generalbox")
-        ul_semestre_atual = semestres_box[0].find_element(By.CSS_SELECTOR, 'ul')
-        disciplinas_semestre_atual = ul_semestre_atual.find_elements(By.CSS_SELECTOR, 'li')
+        ul_current = semestres_box[0].find_element(By.CSS_SELECTOR, "ul")
+        items = ul_current.find_elements(By.CSS_SELECTOR, "li")
     except Exception as exc:
-        print(f'-> Erro ao carregar disciplinas: {exc}')
+        logger.error("Failed to load subjects: %s", exc)
         return None
 
-    for subject in disciplinas_semestre_atual: #get the url and the text from the subjects list of Li
+    for item in items:
         try:
-            link_elem = subject.find_element(By.TAG_NAME, 'a')
-            nome = link_elem.text
-            url = link_elem.get_attribute('href')
-            subjects.append((nome, url))
-        except Exception as exc:
-            #print(exc)
-            continue
+            link_elem = item.find_element(By.TAG_NAME, "a")
+            subjects.append((link_elem.text, link_elem.get_attribute("href")))
+        except Exception:
+            continue  # Skip list items that do not contain a direct link
+
     return subjects
 
-def get_activities(active_browser, subject_url: str):
+
+def get_activities(active_browser, subject_url: str) -> list | None:
     """
-    Returns a list of activities objects(name,url,due-date) collected in the subject page
+    Navigate to a subject page and return all ``activity-item`` elements.
+
+    The function expands all course sections before querying for activities
+    and allows a short render delay for lazy-loaded descriptions.
+
+    Args:
+        active_browser: Active :class:`selenium.webdriver.Chrome` instance.
+        subject_url:    Full URL of the Moodle subject/course page.
+
+    Returns:
+        A list of Selenium WebElements with class ``activity-item``, or
+        ``None`` if navigation or element discovery fails.
     """
-    atividades = None
     active_browser.get(subject_url)
     try:
-        #get section expand buttons
         WebDriverWait(active_browser, 10).until(
-            ExpC.element_to_be_clickable((By.ID, "collapsesections")))
-        toogle_page_extended(active_browser)
-        # wait activities to show on screen
+            ExpC.element_to_be_clickable((By.ID, "collapsesections"))
+        )
+        toggle_page_extended(active_browser)
         WebDriverWait(active_browser, 10).until(
-            ExpC.visibility_of_all_elements_located((By.CLASS_NAME, "activity-item")))
-        # wait descriptions
-        time.sleep(1)
-        try:
-            active_browser.find_elements(By.CLASS_NAME, "activity-item")
-        except Exception as Exc:
-            print(f'error finding activities: {Exc}')
-        finally:
-            atividades = active_browser.find_elements(By.CLASS_NAME, "activity-item")
-            print(f'blocos capturados: {len(atividades)}')
-    except Exception as e:
-        print(f"Erro ao capturar atividades: {e}")
+            ExpC.visibility_of_all_elements_located((By.CLASS_NAME, "activity-item"))
+        )
+        time.sleep(1)  # Allow lazy-loaded activity descriptions to finish rendering
+        activities = active_browser.find_elements(By.CLASS_NAME, "activity-item")
+        logger.info("Activity blocks found: %d", len(activities))
+        return activities
+    except Exception as exc:
+        logger.error("Failed to retrieve activities from '%s': %s", subject_url, exc)
+        return None
 
-    return atividades
 
-def get_activities_status(active_browser,activity_url:str):
+def get_activities_status(active_browser, activity_url: str) -> str:
     """
-    Enters the activity url and catch the status, returning it individually.
+    Navigate to an individual activity page and read the submission status.
+
+    Uses direct ``get()`` / restore navigation instead of opening a new
+    browser tab, which avoids window-handle switching errors.
+
+    Args:
+        active_browser: Active :class:`selenium.webdriver.Chrome` instance.
+        activity_url:   Full URL of the Moodle assignment page.
+
+    Returns:
+        The submission status string extracted from the status table, or
+        ``"Erro ao obter status"`` if the page structure is not as expected.
     """
+    previous_url = active_browser.current_url
     try:
-        active_browser.execute_script("window.open(arguments[0]);", activity_url)
-        active_browser.switch_to.window(active_browser.window_handles[-1])
-
+        active_browser.get(activity_url)
         WebDriverWait(active_browser, 15).until(
-            ExpC.visibility_of_element_located((By.CSS_SELECTOR, 'div.submissionstatustable')))
-
-        table = active_browser.find_element(By.CSS_SELECTOR, 'div.submissionstatustable table')
-        first_td = table.find_element(By.CSS_SELECTOR, 'tbody > tr:first-child td')
+            ExpC.visibility_of_element_located((By.CSS_SELECTOR, "div.submissionstatustable"))
+        )
+        table = active_browser.find_element(By.CSS_SELECTOR, "div.submissionstatustable table")
+        first_td = table.find_element(By.CSS_SELECTOR, "tbody > tr:first-child td")
         status = first_td.text.strip()
-    except Exception as e:
+    except Exception as exc:
+        logger.warning("Could not retrieve status for '%s': %s", activity_url, exc)
         status = "Erro ao obter status"
-        print(f"Erro ao obter status: {e}")
     finally:
-        active_browser.close()
-        active_browser.switch_to.window(active_browser.window_handles[0])
+        active_browser.get(previous_url)  # Restore the subject page
 
     return status
 
-def login_moodle(active_browser,user:str,secret:str):
-    """
-        This function occurs after the user click in Login at the interface and have exception routes
-        for error in credentials or if the user have multiple curriculum numbers
-    """
 
+def login_moodle(active_browser, user: str, secret: str) -> dict:
+    """
+    Authenticate on the Moodle UFSC platform and return a structured result.
+
+    After submitting the login form the function inspects the resulting URL
+    to determine the outcome and handles the multi-curriculum-number edge
+    case.
+
+    Args:
+        active_browser: Active :class:`selenium.webdriver.Chrome` instance.
+        user:           Plain-text Moodle username.
+        secret:         Plain-text Moodle password.
+
+    Returns:
+        A dict with one of the following shapes:
+
+        * ``{"status": "success",      "data": [(name, url), ...]}``
+          — Login succeeded; ``data`` is the subject list.
+        * ``{"status": "multiple_ids", "data": [(id, url), ...]}``
+          — Account has multiple curriculum numbers; user must choose one.
+        * ``{"status": "error",        "data": None}``
+          — Login failed (wrong credentials or unexpected page structure).
+    """
     active_browser.get("https://presencial.moodle.ufsc.br/login")
-    WebDriverWait(active_browser, 10).until(ExpC.element_to_be_clickable((By.ID, 'username')))
+    WebDriverWait(active_browser, 10).until(ExpC.element_to_be_clickable((By.ID, "username")))
     active_browser.find_element(By.ID, "username").send_keys(user)
     active_browser.find_element(By.ID, "password").send_keys(secret)
     active_browser.find_element(By.NAME, "submit").click()
     WebDriverWait(active_browser, 5).until(lambda b: True)
-    curriculum_numbers = []
 
     if "my" in active_browser.current_url:
-        print('Login bem-sucedido.')
+        logger.info("Login successful.")
         return {"status": "success", "data": get_subjects(active_browser)}
-    else:
-        try:
-            table = active_browser.find_element(By.CSS_SELECTOR, "div.table-responsive table")
-            id_links = table.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
-            links = [link.get_attribute('href') for link in id_links]
-            user_ids = [link.text for link in id_links]
-            for i in range(len(user_ids)):
-                curriculum_numbers.append((user_ids[i], links[i]))
-            print("Múltiplos IDs de usuário:", user_ids)
-            return {"status": "multiple_ids", "data": curriculum_numbers}
-        except:
-            print('Login falhou ou estrutura da tabela não encontrada.')
-            return {"status": "error", "data": None}
 
-def select_curriculum_number(active_browser,user_id_page):
+    # Check whether the page presents a curriculum number selection table
+    try:
+        table = active_browser.find_element(By.CSS_SELECTOR, "div.table-responsive table")
+        id_links = table.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
+        curriculum_numbers = [
+            (link.text, link.get_attribute("href")) for link in id_links
+        ]
+        logger.info("Multiple curriculum IDs detected: %s", [c[0] for c in curriculum_numbers])
+        return {"status": "multiple_ids", "data": curriculum_numbers}
+    except Exception:
+        logger.warning("Login failed or unexpected page structure.")
+        return {"status": "error", "data": None}
+
+
+def select_curriculum_number(active_browser, user_id_page: str):
     """
-        In a multi-curriculum number scenario, this function selects the curriculum number that the user
-        wants to access moodle.
-        OBS: this is the LAST step in the multi-curriculum number case
-        """
+    Click the curriculum number link that matches *user_id_page* and wait
+    for the Moodle dashboard to load.
+
+    This function handles the final step of the multi-curriculum login flow.
+
+    Args:
+        active_browser: Active :class:`selenium.webdriver.Chrome` instance,
+                        currently on the curriculum selection page.
+        user_id_page:   The ``href`` of the curriculum link to activate.
+
+    Raises:
+        RuntimeError: If the target link is not found or navigation fails.
+    """
     try:
         WebDriverWait(active_browser, 10).until(
-            ExpC.presence_of_element_located((By.CSS_SELECTOR, "td.cell.c1 a")))
-
-        table_links = active_browser.find_elements(By.CSS_SELECTOR, "td.cell.c1 a")
-
-        # get corresponding url
-        for link in table_links:
-            if link.get_attribute('href') == user_id_page:
+            ExpC.presence_of_element_located((By.CSS_SELECTOR, "td.cell.c1 a"))
+        )
+        for link in active_browser.find_elements(By.CSS_SELECTOR, "td.cell.c1 a"):
+            if link.get_attribute("href") == user_id_page:
                 link.click()
                 WebDriverWait(active_browser, 10).until(lambda b: "my" in b.current_url)
-                return  # exit and continues the process
+                return
+        raise ValueError(f"Link with href '{user_id_page}' not found.")
+    except Exception as exc:
+        raise RuntimeError(f"Failed to select curriculum identity: {exc}")
 
-        raise ValueError(f"Link com href '{user_id_page}' não encontrado.")
 
-    except Exception as Exc:
-        raise RuntimeError(f"Erro ao selecionar identidade: {Exc}")
-
-def toogle_page_extended(activeBrowser):
-    expand_btn = activeBrowser.find_element(By.ID, "collapsesections")
-    expand_btn_state = expand_btn.get_attribute("aria-expanded")
-
-    if expand_btn_state == "true":
-        expand_btn.click()  # close all
-        time.sleep(0.5)
-        expand_btn.click()  # open all
-    else:
-        expand_btn.click()  # open all
-
-def loop_activities(activities_list: list, all_time:bool=False):
+def loop_activities(activities_list: list, all_time: bool = False) -> list:
     """
-    Loops through given activities considering the all_time parameter and return the correspondent ones
+    Filter a list of activity WebElements by due date and return those that
+    match the selection criteria.
 
-    all_time == False means that this function only return the further activities from today's date
-    all_time == True means that this function will return all activities with delivery date.
+    Args:
+        activities_list: List of Selenium WebElements with class
+                         ``activity-item``, as returned by
+                         :func:`get_activities`.
+        all_time:        When ``False`` (default), only activities whose due
+                         date is in the future are included.  When ``True``,
+                         all activities with a parseable due date are
+                         returned, regardless of whether they have passed.
+
+    Returns:
+        A list of ``(name, url, due_date)`` tuples for the activities that
+        satisfy the filter criteria.
     """
-
-    actual_subject_activities = []
+    result = []
     for atividade in activities_list:
         try:
             activity_name = atividade.get_attribute("data-activityname")
-            if activity_name:
-                descricao_div = atividade.find_element(By.CLASS_NAME, "description")
-                descricao_texto = descricao_div.find_element(By.CLASS_NAME, "description-inner").text
-                if 'Vencimento:' in descricao_texto:
-                    activity_due_date = parse_date_text(descricao_texto)
-                    if all_time or activity_due_date > datetime.today():
-                        url_element = atividade.find_element(By.CSS_SELECTOR, 'a.aalink.stretched-link')
-                        activity_url = url_element.get_attribute('href')
-                        if activity_name and activity_url and activity_due_date:
-                            actual_subject_activities.append((activity_name, activity_url, activity_due_date))
-                        else:
-                            print('missing parameters at sorted activity')
-        except Exception:
-            continue
+            if not activity_name:
+                continue
 
-    return actual_subject_activities
+            descricao_div   = atividade.find_element(By.CLASS_NAME, "description")
+            descricao_texto = descricao_div.find_element(By.CLASS_NAME, "description-inner").text
+
+            if "Vencimento:" not in descricao_texto:
+                continue
+
+            activity_due_date = parse_date_text(descricao_texto)
+            if not activity_due_date:
+                logger.debug("No parseable due date for '%s', skipping.", activity_name)
+                continue
+
+            if not all_time and activity_due_date <= datetime.today():
+                continue  # Skip past activities when all_time is disabled
+
+            url_element  = atividade.find_element(By.CSS_SELECTOR, "a.aalink.stretched-link")
+            activity_url = url_element.get_attribute("href")
+
+            if activity_url:
+                result.append((activity_name, activity_url, activity_due_date))
+            else:
+                logger.warning("Missing URL for activity '%s', skipping.", activity_name)
+
+        except Exception:
+            continue  # Silently skip malformed or incomplete activity blocks
+
+    return result
